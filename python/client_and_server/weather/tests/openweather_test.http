@@ -1,0 +1,10 @@
+@contentType = application/json
+@userAgent = weather-app/1.0
+@openweather_url = api.openweathermap.org
+@city = SEA
+@geoit = JSON
+@region = US
+
+GET https://{{openweather_url}}/data/2.5/weather?q={{city}}&appid={{apiKey}}&units=metric
+Content-Type: {{contentType}}
+User-Agent: {{userAgent}}

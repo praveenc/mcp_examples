@@ -1,0 +1,9 @@
+@contentType = application/json
+@userAgent = weather-app/1.0
+@city = Bellevue
+@geoit = JSON
+@region = US
+
+GET https://geocode.xyz?locate={{city}}&geoit={{geoit}}&region={{region}}
+Content-Type: {{contentType}}
+User-Agent: {{userAgent}}

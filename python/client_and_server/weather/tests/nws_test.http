@@ -1,0 +1,24 @@
+@contentType = application/geo+json
+@userAgent = weather-app/1.0
+@nws_url = api.weather.gov
+@state = WA
+@latitude = 33.00979
+@longitude = -117.12426
+
+
+### Get active alerts for a state
+GET https://{{nws_url}}/alerts/active/area/{{state}}
+Accept: {{contentType}}
+User-Agent: {{userAgent}}
+
+### Get forecast for a state
+GET https://api.weather.gov/points/{{latitude}},{{longitude}}
+Accept: {{contentType}}
+User-Agent: {{userAgent}}
+
+
+### Forecast URL
+GET https://api.weather.gov/gridpoints/SGX/60,27/forecast
+Accept: {{contentType}}
+User-Agent: {{userAgent}}
+

@@ -1,0 +1,19 @@
+[project]
+name = "weather"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic[bedrock]>=0.59.0",
+    "httpx>=0.28.1",
+    "loguru>=0.7.3",
+    "mcp[cli]>=1.6.0",
+    "nest-asyncio>=1.6.0",
+    "rich>=14.0.0",
+    "streamlit>=1.47.1",
+    "watchdog>=6.0.0",
+]
+
+[tool.uv]
+upgrade-package = ["mcp[cli]"]
