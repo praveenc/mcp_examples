@@ -1,11 +1,11 @@
 # Weather MCP Example – Project Overview
 
-This repository demonstrates a **minimal yet complete** Model-Context-Protocol (MCP) setup comprising:
+This repository demonstrates a **complete** Model-Context-Protocol (MCP) setup comprising:
 
-1. **An MCP server** exposing two weather-related *tools* (`get_alerts`, `get_forecast`).
-2. **An MCP client / chatbot** that dynamically discovers those tools and calls them through Anthropic’s function-calling interface.
+1. **An MCP server** exposing three weather-related *tools* (`get_alerts`, `get_forecast`, `get_lat_long`).
+2. **Two MCP clients**: a CLI chatbot and a modern Streamlit web application that dynamically discover tools and call them through Anthropic's function-calling interface.
 
-Everything is wired through the **stdio transport**, so no network sockets are required – the client spawns the server as a subprocess and exchanges JSON-RPC messages over STDIN/STDOUT.
+Everything is wired through the **stdio transport**, so no network sockets are required – the clients spawn the server as a subprocess and exchange JSON-RPC messages over STDIN/STDOUT.
 
 ---
 ## 1. Directory structure
@@ -13,19 +13,20 @@ Everything is wired through the **stdio transport**, so no network sockets are r
 ```text
 python/weather/
 │
-├── client/                # Stand-alone CLI chatbot
+├── client/                # MCP clients
 │   ├── .env               # Model + token limits
-│   ├── mcp_client.py      # Main client implementation
+│   ├── app.py             # Streamlit web application (MCP client)
+│   ├── mcp_client.py      # CLI chatbot (MCP client)
 │   ├── __init__.py
 │   └── server_config.json # Configuration for MCP servers
 │
 ├── server/                # MCP server implementation
 │   ├── __init__.py
 │   ├── weather_server.py  # FastMCP server + tool definitions
-│   └── utils/
-│       └── weather_utils.py  # Shared async helpers
+│   └── weather_server.log # Server logs
 │
-├── pyproject.toml         # Poetry-style metadata + deps (uses `uv` under the hood)
+├── pyproject.toml         # uv-style metadata + dependencies
+├── uv.lock                # Locked dependencies
 ├── README.md              # High-level project read-me
 └── OVERVIEW.md            # ← **this file**
 ```
@@ -44,26 +45,52 @@ python/weather/
 
 ```mermaid
 flowchart TD
-    subgraph Server Process
-        A[FastMCP("Weather")] --> B[get_alerts]
+    subgraph "MCP Weather Server"
+        A[FastMCP\("Weather"\)] --> B[get_alerts]
         A --> C[get_forecast]
+        A --> D[get_lat_long]
     end
+    
+    subgraph "External APIs"
+        E[National Weather Service]
+        F[geocode.xyz]
+    end
+    
+    B --> E
+    C --> E
+    D --> F
 ```
 
 ### 3.1 Constants
 * `NWS_API_BASE` – base URL for the US National Weather Service API. All requests are built on top of this path.
+* `GEOCODE_API_BASE` – base URL for geocoding service to convert city names to coordinates.
+* `USER_AGENT` – proper User-Agent header for API requests.
 
 ### 3.2 `get_alerts(state: str) -> str`
 * Builds the URL `/alerts/active/area/{state}`.
-* Delegates HTTP call to `utils.get_weather_data`.
-* Each GeoJSON *feature* is formatted via `utils.format_alert` and concatenated.
+* Makes HTTP call to National Weather Service API with proper error handling.
+* Each GeoJSON *feature* is formatted and concatenated into human-readable alerts.
 
-### 3.3 `get_forecast(latitude: float, longitude: float) -> str`
+### 3.3 `get_lat_long(place: str) -> str`
+* Converts US city names to latitude/longitude coordinates.
+* Uses geocode.xyz API with timeout and error handling.
+* Returns formatted coordinates that can be used with `get_forecast`.
+
+### 3.4 `get_forecast(latitude: float, longitude: float) -> str`
 * First hits `/points/{lat},{lon}` to resolve the *forecast* URL.
 * Second request fetches the 7-day / 12-hour period forecast.
 * Only the **next 5 periods** are returned to keep responses concise.
 
-### 3.4 Bootstrapping
+### 3.5 Tool Chaining
+
+The AI automatically chains tools for complex requests:
+```
+User: "What's the forecast for San Francisco?"
+1. get_lat_long("San Francisco") → 37.7749, -122.4194
+2. get_forecast(37.7749, -122.4194) → Detailed forecast
+```
+
+### 3.6 Bootstrapping
 
 ```python
 if __name__ == "__main__":
@@ -73,17 +100,37 @@ if __name__ == "__main__":
 Running with `transport="stdio"` makes the file perfectly suited for spawning by another process (our client). No additional CLI wrapper is required.
 
 ---
-## 4. Shared utilities (`server/utils/weather_utils.py`)
+## 4. Client Architecture
 
-| Helper | Purpose |
-|--------|---------|
-| `async get_weather_data(url)` | Thin wrapper around **httpx.AsyncClient** with logging, timeout, error handling, and proper *User-Agent* header. |
-| `format_alert(feature)` | Extracts `event`, `areaDesc`, `severity`, `description`, and `instruction` into a human-readable multi-line string. |
+The project includes two MCP clients that demonstrate different interaction patterns:
 
-Both helpers are synchronous-safe: server code awaits them inside each tool.
+```mermaid
+flowchart LR
+    subgraph "MCP Clients"
+        A[CLI Client\nmcp_client.py]
+        B[Streamlit Web App\napp.py]
+    end
+    
+    subgraph "MCP Server"
+        C[Weather Server\nweather_server.py]
+    end
+    
+    subgraph "External Services"
+        D[Anthropic Bedrock]
+        E[National Weather Service]
+        F[geocode.xyz]
+    end
+    
+    A --> C
+    B --> C
+    A --> D
+    B --> D
+    C --> E
+    C --> F
+```
 
 ---
-## 5. Client internals (`client/mcp_client.py`)
+## 5. CLI Client internals (`client/mcp_client.py`)
 
 ### 5.1 `MCPChatBot.__init__`
 * Creates an `AsyncExitStack` to manage all async contexts.
@@ -108,37 +155,82 @@ Both helpers are synchronous-safe: server code awaits them inside each tool.
 * `MAX_TOKENS` – max output tokens per Anthropic call.
 
 ---
-## 6. How to run locally
+## 6. Streamlit Web Client (`client/app.py`)
+
+The Streamlit application provides a modern web interface for the weather MCP system:
+
+### 6.1 Architecture
+* **StreamlitMCPClient**: Manages async MCP connections within Streamlit's synchronous environment
+* **Event Loop Management**: Uses separate event loops for initialization and query processing
+* **AsyncExitStack**: Proper async context management for MCP connections
+* **Session State**: Maintains conversation history and client state
+
+### 6.2 Key Features
+* **Chat Interface**: Modern chat UI with message history
+* **Tool Visibility**: Sidebar showing connected MCP servers and available tools
+* **Error Handling**: Comprehensive error handling with user-friendly messages
+* **Real-time Processing**: Live updates during tool execution
+
+### 6.3 Usage Examples
+* "What are the weather alerts in California?"
+* "Show me the forecast for San Francisco"
+* "Get me latitude and longitude for New York City"
+
+---
+## 7. How to run locally
 
 ```bash
 # 1️⃣  Install UV and create virtual environment
 pip install uv
 uv venv
 # Activate virtual environment
-source .venv/bin/activate
+source .venv/bin/activate  # On macOS/Linux
+# .venv\Scripts\activate     # On Windows
 
-# 2️⃣  Export required env vars
-cp client/.env.example client/.env  # or edit manually
+# 2️⃣  Install dependencies
+uv sync
 
-# 3️⃣  Start the chatbot – it will auto-spawn the server via stdio
-uv run client/mcp_client.py
+# 3️⃣  Configure AWS credentials for Anthropic Bedrock
+aws configure  # or set environment variables
+
+# 4️⃣  Update server path in client/server_config.json
+# Edit the path to match your installation directory
+
+# 5️⃣  Choose your client:
+
+# Option A: Streamlit Web App (Recommended)
+cd client
+uv run streamlit run app.py
+# Open browser to http://localhost:8501
+
+# Option B: CLI Chatbot
+cd client
+uv run mcp_client.py
+
+# Option C: Test server directly
+cd server
+uv run weather_server.py
 ```
 
-*You can also spawn the server manually for debugging:* `uv run server/weather_server.py` (then interact with it using `mcp` CLI).
+**Environment Configuration**: The project includes a `.env` file in `client/.env` with default settings. You can modify the model or token limits if needed.
 
 ---
-## 7. Extending the example
+## 8. Extending the example
 
 1. **Add a new tool**
    * Define `async def your_tool(...)` in `weather_server.py`.
-   * Decorate with `@mcp.tool(name=..., description=...)`.
-2. **Client picks it up automatically** on next run – no code change required.
-3. For non-stdio transport (WebSocket, HTTP/2, etc.) replace `mcp.run(transport="stdio")` accordingly and update `server_config.json`.
+   * Decorate with `@mcp.tool()` (FastMCP auto-generates schema from type hints).
+2. **Both clients pick it up automatically** on next run – no code change required.
+3. **Add more MCP servers** by adding entries to `client/server_config.json`.
+4. For non-stdio transport (WebSocket, HTTP/2, etc.) replace `mcp.run(transport="stdio")` accordingly and update `server_config.json`.
 
 ---
-## 8. Key takeaways
+## 9. Key takeaways
 
 * **Tools are first-class citizens**: the only API surface exposed by the server.
 * **Type-hints ⇨ JSON schema**: FastMCP auto-generates the `input_schema` sent to LLMs.
+* **Multiple client patterns**: CLI for development, Streamlit for user-friendly interfaces.
+* **Tool chaining**: AI automatically chains tools (geocoding → forecast) for complex requests.
 * **Async all the way down** ensures the server remains responsive even with slow upstream APIs.
 * The architecture is **LLM-agnostic** – swap Anthropic for OpenAI, Gemini, etc. by replacing the `anthropic` block.
+* **Production-ready**: Comprehensive error handling, logging, and async context management.
