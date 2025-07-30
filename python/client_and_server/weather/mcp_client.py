@@ -7,15 +7,13 @@ from pathlib import Path
 import nest_asyncio
 from anthropic import AnthropicBedrock
 from dotenv import load_dotenv
+from loguru import logger
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 nest_asyncio.apply()
 
-load_dotenv(".env")
-
-MODEL = os.getenv("MODEL")
-MAX_TOKENS = os.getenv("MAX_TOKENS")
+# Environment variables will be loaded in main()
 
 
 class MCPChatBot:
@@ -25,14 +23,18 @@ class MCPChatBot:
         self.available_tools: list[dict] = []
         self.available_prompts = []
         self.sessions = {}
+        # Get environment variables
+        self.model = os.getenv("MODEL")
+        self.max_tokens = os.getenv("MAX_TOKENS")
+        logger.info(f"Starting chatbot with model: {self.model}")
 
     async def process_query(self, query):
         messages = [{"role": "user", "content": query}]
 
         while True:
             response = self.anthropic.messages.create(
-                max_tokens=int(MAX_TOKENS),
-                model=MODEL,
+                max_tokens=int(self.max_tokens),
+                model=self.model,
                 tools=self.available_tools,
                 messages=messages,
             )
@@ -76,12 +78,8 @@ class MCPChatBot:
                 break
 
     async def chat_loop(self):
-        print("\nMCP Chatbot Started!")
+        print("\nMCP US Weather 🌤️ Chatbot Started!")
         print("Type your queries or 'quit' to exit.")
-        # print("Use @folders to see available topics")
-        # print("Use @<topic> to search papers in that topic")
-        # print("Use /prompts to list available prompts")
-        # print("Use /prompt <name> <arg1=value1> to execute a prompt")
 
         while True:
             try:
@@ -144,13 +142,27 @@ class MCPChatBot:
 
 
 async def main():
+    # Load .env file
+    load_dotenv(".env")
+
+    # Get environment variables after loading .env
+    # model = os.getenv("MODEL")
+    # max_tokens = os.getenv("MAX_TOKENS")
+
     chatbot = MCPChatBot()
     try:
         await chatbot.connect_to_servers()
         await chatbot.chat_loop()
     finally:
+        logger.info("Cleaning up...")
         await chatbot.cleanup()
 
 
 if __name__ == "__main__":
+    # Check if .env file exists
+    if not Path(".env").exists():
+        logger.info("Please copy .env.example to .env file.")
+        logger.error(".env file not found")
+        exit(1)
+
     asyncio.run(main())

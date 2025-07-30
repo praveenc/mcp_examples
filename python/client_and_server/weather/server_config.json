@@ -4,8 +4,6 @@
         "weather": {
             "command": "uv",
             "args": [
-                "--directory",
-                "/Users/pchamart/dev/ai-ml/gen-ai/mcp_servers/python/weather/server",
                 "run",
                 "weather_server.py"
             ]

@@ -19,6 +19,7 @@ USER_AGENT = "weather-app/1.0"
 # Helper functions
 # ========
 
+
 # helper function to get the weather data from the NWS API
 async def make_nws_request(url: str) -> dict[str, Any] | None:
     """Make a request to  the NWS API with proper error handling."""
@@ -47,6 +48,7 @@ def format_alert(feature: dict) -> str:
     Description: {props.get("description", "No description available")}
     Instructions: {props.get("instruction", "No specific instructions provided")}
     """
+
 
 def round_up_coordinate(value, decimal_places=4):
     """Round up coordinate to specified decimal places."""
@@ -79,6 +81,7 @@ async def get_alerts(state: str) -> str:
     alerts = [format_alert(feature) for feature in data["features"]]
     return "\n---\n".join(alerts)
 
+
 @mcp.tool()
 async def get_lat_long(place: str) -> str:
     """
@@ -99,7 +102,9 @@ async def get_lat_long(place: str) -> str:
     try:
         # logger.info(f"Making geocoding request to {GEOCODE_API_BASE} with params: {params}")
         async with httpx.AsyncClient(timeout=5.0) as client:
-            response = await client.get(GEOCODE_API_BASE, params=params, headers=headers)
+            response = await client.get(
+                GEOCODE_API_BASE, params=params, headers=headers,
+            )
             logger.info(f"Geocoding response status: {response.status_code}")
             response.raise_for_status()
 
@@ -111,23 +116,26 @@ async def get_lat_long(place: str) -> str:
                 latt = float(lat_long_dict["latt"])
                 rounded_lat = round_up_coordinate(latt)
                 rounded_lon = round_up_coordinate(longt)
-                logger.info(f"Successfully geocoded {place}: Latitude={rounded_lat}, Longitude={rounded_lon}")
+                logger.info(
+                    f"Successfully geocoded {place}: Latitude={rounded_lat}, Longitude={rounded_lon}",
+                )
                 return f"Latitude={rounded_lat}, Longitude={rounded_lon}"
-            else:
-                error_msg = f"No location data found for {place}"
-                logger.error(error_msg)
-                return error_msg
+            error_msg = f"No location data found for {place}"
+            logger.error(error_msg)
+            return error_msg
 
     except httpx.TimeoutException:
         error_msg = f"Geocoding request timed out for {place}"
         logger.error(error_msg)
         return error_msg
     except httpx.HTTPStatusError as e:
-        error_msg = f"HTTP error {e.response.status_code} for {place}: {e.response.text}"
+        error_msg = (
+            f"HTTP error {e.response.status_code} for {place}: {e.response.text}"
+        )
         logger.error(error_msg)
         return error_msg
     except Exception as e:
-        error_msg = f"Geocoding error for {place}: {str(e)}"
+        error_msg = f"Geocoding error for {place}: {e!s}"
         logger.error(error_msg)
         return error_msg
 
